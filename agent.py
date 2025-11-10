@@ -5,8 +5,7 @@ from typing import TypedDict, Annotated, Literal
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+import httpx
 import asyncio
 from dotenv import load_dotenv
 
@@ -41,68 +40,84 @@ def get_llm():
         convert_system_message_to_human=True
     )
 
+
 # GitHub MCP Client Manager
 class GitHubMCPClient:
-    def __init__(self, config_path="mcp_config.json"):
-        self.config_path = config_path
-        self.session = None
+    def __init__(self):
+        # Get credentials from environment
+        self.token = os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN")
+        self.username = os.environ.get("GITHUB_USERNAME")
         
+        # The MCP endpoint from your tips
+        self.base_url = "https://api.githubcopilot.com/mcp/"
+        
+        if not self.token:
+            raise ValueError("GITHUB_PERSONAL_ACCESS_TOKEN not found in .env")
+        if not self.username:
+            raise ValueError("GITHUB_USERNAME not found in .env")
+
+        # Set up the authentication headers
+        self.headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        self.client = None
+
     async def __aenter__(self):
-        # Load MCP configuration
-        with open(self.config_path, 'r') as f:
-            config = json.load(f)
-        
-        github_config = config['mcpServers']['github']
-        
-        # Create server parameters
-        server_params = StdioServerParameters(
-            command=github_config['command'],
-            args=github_config['args'],
-            env=github_config.get('env', {})
+        # Initialize the async HTTP client
+        self.client = httpx.AsyncClient(
+            base_url=self.base_url, 
+            headers=self.headers, 
+            timeout=30.0
         )
+        await self.client.__aenter__()
         
-        # Initialize MCP client
-        stdio_transport = await stdio_client(server_params).__aenter__()
-        self.stdio_context = stdio_transport
-        self.session = ClientSession(stdio_transport[0], stdio_transport[1])
-        await self.session.__aenter__()
-        
-        # Initialize the session
-        await self.session.initialize()
+        # Let's test the connection/authentication
+        try:
+            # This is a simple MCP call to verify credentials
+            await self.client.get("github/user")
+            print("✅ GitHub MCP Client Authenticated Successfully.")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                print("❌ GitHub MCP: Authentication failed (401).")
+                raise Exception("Authentication failed. Check your GITHUB_PERSONAL_ACCESS_TOKEN.")
+            print(f"❌ GitHub MCP: Connection test failed: {e}")
+            raise
         
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.__aexit__(exc_type, exc_val, exc_tb)
-        if hasattr(self, 'stdio_context'):
-            await self.stdio_context.__aexit__(exc_type, exc_val, exc_tb)
+        # Close the client session
+        if self.client:
+            await self.client.__aexit__(exc_type, exc_val, exc_tb)
     
     async def create_repository(self, name: str, description: str = "", private: bool = False):
-        """Create a new GitHub repository"""
-        result = await self.session.call_tool(
-            "create_repository",
-            arguments={
-                "name": name,
-                "description": description,
-                "private": private
-            }
-        )
-        return result
+        """Create a new GitHub repository via MCP"""
+        payload = {
+            "owner": self.username,  # <-- ADD THIS LINE
+            "name": name,
+            "description": description,
+            "private": private
+        }
+        # We call the 'github/create_repository' tool on the MCP server
+        response = await self.client.post("github/create_repository", json=payload)
+        response.raise_for_status() # Raise an exception for 4xx/5xx
+        return response.json()
     
     async def push_files(self, repo_name: str, files: dict, branch: str = "main"):
-        """Push files to GitHub repository"""
-        result = await self.session.call_tool(
-            "push_files",
-            arguments={
-                "owner": os.environ.get("GITHUB_USERNAME"),
-                "repo": repo_name,
-                "files": files,
-                "branch": branch,
-                "message": "Initial commit from Python Code Builder Agent"
-            }
-        )
-        return result
+        """Push files to GitHub repository via MCP"""
+        payload = {
+            "owner": self.username,
+            "repo": repo_name,
+            "files": files,
+            "branch": branch,
+            "message": "Initial commit from Python Code Builder Agent"
+        }
+        # We call the 'github/push_files' tool on the MCP server
+        response = await self.client.post("github/push_files", json=payload)
+        response.raise_for_status()
+        return response.json()
 
 # Node 1: Generate Python Code (IMPROVED VERSION)
 async def generate_code_node(state: AgentState) -> AgentState:
