@@ -1,0 +1,23 @@
+# Core LangChain packages
+langchain==0.3.7
+langchain-core==0.3.15
+langchain-community==0.3.5
+
+# Google Generative AI
+langchain-google-genai==2.0.5
+google-generativeai==0.8.3
+
+# LangGraph for agent workflows
+langgraph==0.2.45
+
+# MCP (Model Context Protocol)
+mcp==1.1.2
+
+# Pydantic for data validation
+pydantic==2.9.2
+
+# Environment variables
+python-dotenv==1.0.1
+
+# Optional but recommended
+typing-extensions==4.12.2
