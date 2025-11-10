@@ -95,15 +95,15 @@ class GitHubMCPClient:
     async def create_repository(self, name: str, description: str = "", private: bool = False):
         """Create a new GitHub repository via MCP"""
         payload = {
-            "owner": self.username,  # <-- ADD THIS LINE
+            "owner": self.username,  # ✅ ADDED: owner field
             "name": name,
             "description": description,
             "private": private
         }
-        # We call the 'github/create_repository' tool on the MCP server
         response = await self.client.post("github/create_repository", json=payload)
-        response.raise_for_status() # Raise an exception for 4xx/5xx
+        response.raise_for_status()
         return response.json()
+
     
     async def push_files(self, repo_name: str, files: dict, branch: str = "main"):
         """Push files to GitHub repository via MCP"""
